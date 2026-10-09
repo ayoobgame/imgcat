@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>محرر وضغط الصور الشامل</title>
+    
+    <!-- ربط ملف المانفست الخاص بالـ PWA -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#007bff">
+
+    <style>
+        body { font-family: Tahoma, sans-serif; background: #f4f4f9; margin: 0; padding: 15px; text-align: center; color: #333; overflow-x: hidden; }
+        .container { max-width: 450px; margin: auto; padding-bottom: 100px; }
+        
+        input[type="file"], select, button { width: 100%; margin: 8px 0; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; box-sizing: border-box; }
+        .row { display: flex; gap: 10px; }
+        .row input { width: 50%; }
+
+        .editor-area { 
+            position: relative; 
+            display: inline-block; 
+            max-width: 100%; 
+            margin-top: 10px; 
+            overflow: hidden; 
+            border-radius: 12px; 
+            border: 1px dashed #ccc; 
+            user-select: none; 
+            background: #fff;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        }
+        canvas { display: block; max-width: 100%; height: auto; }
+        
+        .crop-box {
+            position: absolute;
+            border: 2px dashed #ff0000;
+            background: rgba(255, 255, 255, 0.2);
+            cursor: move;
+            display: none;
+            box-sizing: border-box;
+            touch-action: none;
+        }
+
+        .resize-handle {
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            background: #ff0000;
+            border-radius: 50%;
+            touch-action: none;
+        }
+        .handle-se { bottom: -9px; right: -9px; cursor: se-resize; }
+
+        /* لوحة الأدوات المنبثقة القابلة للطي */
+        .controls { 
+            display: none; 
+            text-align: right; 
+            position: fixed; 
+            bottom: 0; 
+            left: 0; 
+            right: 0; 
+            background: #fff; 
+            padding: 15px 20px 25px 20px; 
+            border-top-left-radius: 20px; 
+            border-top-right-radius: 20px; 
+            box-shadow: 0 -5px 20px rgba(0,0,0,0.15); 
+            z-index: 900; 
+            max-width: 480px; 
+            margin: auto;
+            box-sizing: border-box;
+            max-height: 75vh;
+            overflow-y: auto;
+            transition: transform 0.3s ease-in-out;
+        }
+
+        /* مقبض السحب العلوي */
+        .drawer-handle-bar {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding-bottom: 10px;
+            cursor: pointer;
+        }
+        .drawer-indicator {
+            width: 40px;
+            height: 5px;
+            background: #ccc;
+            border-radius: 3px;
+        }
+
+        /* حالة طي اللوحة لأسفل الشاشة */
+        .controls.collapsed {
+            transform: translateY(calc(100% - 35px));
+        }
+
+        label { font-size: 14px; font-weight: bold; display: block; margin-top: 8px; }
+        .range-container { display: flex; align-items: center; gap: 10px; }
+        .range-container input { flex: 1; margin: 0; }
+        
+        #toggleCropBtn { background: #6c757d; color: white; border: none; cursor: pointer; }
+        #toggleCropBtn.active { background: #ffc107; color: #000; }
+
+        .actions-row { display: flex; gap: 10px; margin-top: 15px; }
+        .actions-row button { flex: 1; margin: 0; padding: 12px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; border: none; box-sizing: border-box; transition: 0.2s; }
+        
+        #processBtn { background: #007bff; color: white; }
+        #processBtn:active { transform: scale(0.98); }
+
+        .download-btn {
+            background: #cccccc;
+            color: #666666;
+            pointer-events: none;
+            cursor: not-allowed;
+        }
+
+        .download-btn.active {
+            background: linear-gradient(135deg, #28a745, #218838);
+            color: white;
+            pointer-events: auto;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+        }
+        .download-btn.active:active {
+            transform: scale(0.98);
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background: #fff;
+            padding: 20px;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 350px;
+            text-align: right;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            animation: fadeIn 0.2s ease-in-out;
+        }
+        .modal-content h3 { margin-top: 0; color: #007bff; text-align: center; }
+        .modal-info { font-size: 14px; margin: 10px 0; line-height: 1.6; background: #f8f9fa; padding: 10px; border-radius: 6px; }
+        .modal-buttons { display: flex; gap: 10px; margin-top: 15px; }
+        .modal-buttons button { flex: 1; margin: 0; padding: 10px; border-radius: 6px; font-weight: bold; border: none; cursor: pointer; }
+        .btn-confirm { background: #28a745; color: white; }
+        .btn-cancel { background: #dc3545; color: white; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>محرر وضغط الصور</h2>
+    
+    <input type="file" id="upload" accept="image/*">
+
+    <div class="editor-area" id="editorArea" style="display: none;">
+        <canvas id="canvas"></canvas>
+        <div id="cropBox" class="crop-box">
+            <div class="resize-handle handle-se" id="resizeHandle"></div>
+        </div>
+    </div>
+</div>
+
+<!-- لوحة الأدوات القابلة للطي -->
+<div class="controls" id="controls">
+    <div class="drawer-handle-bar" id="drawerHandle">
+        <div class="drawer-indicator"></div>
+    </div>
+
+    <button id="toggleCropBtn" class="active">أداة القص: مفعلة</button>
+
+    <label>اختر نسبة القص:</label>
+    <select id="aspectRatio">
+        <option value="free">حر (تحديد وحجم يدوي كامل)</option>
+        <option value="1">مربع (1:1)</option>
+        <option value="1.333">منظر طبيعي (4:3)</option>
+        <option value="0.75">بورتريه (3:4)</option>
+        <option value="1.777">عريض سينمائي (16:9)</option>
+        <option value="0.562">شاشة الهاتف ستوري (9:16)</option>
+        <option value="1.25">إنستغرام أفقي (5:4)</option>
+        <option value="0.8">إنستغرام عمودي (4:5)</option>
+    </select>
+
+    <label>الأبعاد (بالبكسل):</label>
+    <div class="row">
+        <input type="number" id="customWidth" placeholder="العرض (W)">
+        <input type="number" id="customHeight" placeholder="الارتفاع (H)">
+    </div>
+
+    <label>صيغة الحفظ:</label>
+    <select id="imageFormat">
+        <option value="image/jpeg">JPEG (أفضل للصور العادية)</option>
+        <option value="image/png">PNG (بدون ضغط / يدعم الشفافية)</option>
+        <option value="image/webp">WebP (حديث وصغير الحجم)</option>
+    </select>
+
+    <label>جودة الضغط: <span id="qualityVal">80</span>%</label>
+    <div class="range-container">
+        <input type="range" id="quality" min="0.1" max="1.0" step="0.05" value="0.8">
+    </div>
+
+    <div class="actions-row">
+        <button id="processBtn">معالجة</button>
+        <button id="downloadBtn" class="download-btn">حفظ الصورة</button>
+    </div>
+</div>
+
+<div class="modal-overlay" id="infoModal">
+    <div class="modal-content">
+        <h3>بيانات الصورة</h3>
+        <div class="modal-info" id="modalInfoText"></div>
+        <div class="modal-buttons">
+            <button class="btn-cancel" id="cancelModal">إلغاء</button>
+            <button class="btn-confirm" id="confirmDownload">تأكيد الحفظ</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // تفعيل Service Worker للعمل دون إنترنت
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js').catch(() => {});
+        });
+    }
+
+    const upload = document.getElementById('upload');
+    const controls = document.getElementById('controls');
+    const drawerHandle = document.getElementById('drawerHandle');
+    const editorArea = document.getElementById('editorArea');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const cropBox = document.getElementById('cropBox');
+    const resizeHandle = document.getElementById('resizeHandle');
+    const toggleCropBtn = document.getElementById('toggleCropBtn');
+    const aspectRatioSelect = document.getElementById('aspectRatio');
+    const customWidthInput = document.getElementById('customWidth');
+    const customHeightInput = document.getElementById('customHeight');
+    const imageFormatSelect = document.getElementById('imageFormat');
+    const qualityInput = document.getElementById('quality');
+    const qualityVal = document.getElementById('qualityVal');
+    const processBtn = document.getElementById('processBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    
+    const infoModal = document.getElementById('infoModal');
+    const modalInfoText = document.getElementById('modalInfoText');
+    const confirmDownload = document.getElementById('confirmDownload');
+    const cancelModal = document.getElementById('cancelModal');
+
+    let img = new Image();
+    let scale = 1;
+    let isCropEnabled = true;
+    let finalDataUrl = '';
+    let finalFileName = '';
+
+    let isDragging = false;
+    let isResizing = false;
+    let startX, startY, initialLeft, initialTop, initialWidth, initialHeight;
+
+    // التحكم في زر الرجوع (Hardware Back Button) لمنع الخروج المفاجئ وإعادة تعيين الشاشة
+    window.addEventListener('popstate', (event) => {
+        if (editorArea.style.display === 'inline-block') {
+            resetToUploadState();
+            history.pushState({page: 'editor'}, '', '');
+        }
+    });
+
+    function resetToUploadState() {
+        editorArea.style.display = 'none';
+        controls.style.display = 'none';
+        infoModal.style.display = 'none';
+        upload.value = '';
+        upload.style.display = 'block';
+    }
+
+    // طي وفتح لوحة الأدوات عند الضغط على المقبض العلوي
+    drawerHandle.addEventListener('click', () => {
+        controls.classList.toggle('collapsed');
+    });
+
+    toggleCropBtn.addEventListener('click', () => {
+        isCropEnabled = !isCropEnabled;
+        if (isCropEnabled) {
+            cropBox.style.display = 'block';
+            toggleCropBtn.textContent = 'أداة القص: مفعلة';
+            toggleCropBtn.classList.add('active');
+        } else {
+            cropBox.style.display = 'none';
+            toggleCropBtn.textContent = 'أداة القص: متوقفة';
+            toggleCropBtn.classList.remove('active');
+        }
+    });
+
+    qualityInput.addEventListener('input', () => {
+        qualityVal.textContent = Math.round(qualityInput.value * 100);
+    });
+
+    upload.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        // إضافة حالة للتاريخ لكي يعمل زر الرجوع بسلاسة
+        history.pushState({page: 'editor'}, '', '');
+
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            img.src = event.target.result;
+            img.onload = () => {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.drawImage(img, 0, 0);
+
+                upload.style.display = 'none';
+                editorArea.style.display = 'inline-block';
+                
+                setTimeout(() => {
+                    scale = canvas.clientWidth / img.width;
+                    initCropBox();
+                }, 100);
+
+                controls.style.display = 'block';
+                controls.classList.remove('collapsed');
+                downloadBtn.classList.remove('active');
+                if (isCropEnabled) cropBox.style.display = 'block';
+            }
+        }
+        reader.readAsDataURL(file);
+    });
+
+    function initCropBox() {
+        let w = img.width * 0.7 * scale;
+        let h = img.height * 0.7 * scale;
+        
+        let ratio = aspectRatioSelect.value;
+        if (ratio !== 'free') {
+            let targetRatio = parseFloat(ratio);
+            if (w / h > targetRatio) {
+                w = h * targetRatio;
+            } else {
+                h = w / targetRatio;
+            }
+        }
+
+        cropBox.style.width = w + 'px';
+        cropBox.style.height = h + 'px';
+        cropBox.style.left = (canvas.clientWidth - w) / 2 + 'px';
+        cropBox.style.top = (canvas.clientHeight - h) / 2 + 'px';
+
+        updateInputs();
+    }
+
+    function updateInputs() {
+        customWidthInput.value = Math.round(cropBox.clientWidth / scale);
+        customHeightInput.value = Math.round(cropBox.clientHeight / scale);
+    }
+
+    cropBox.addEventListener('mousedown', startDrag);
+    cropBox.addEventListener('touchstart', startDrag, { passive: false });
+
+    resizeHandle.addEventListener('mousedown', startResize);
+    resizeHandle.addEventListener('touchstart', startResize, { passive: false });
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('touchmove', onMove, { passive: false });
+
+    window.addEventListener('mouseup', onEnd);
+    window.addEventListener('touchend', onEnd);
+
+    function startDrag(e) {
+        if (!isCropEnabled) return;
+        if (e.target === resizeHandle) return;
+        isDragging = true;
+        startX = e.clientX || e.touches[0].clientX;
+        startY = e.clientY || e.touches[0].clientY;
+        initialLeft = cropBox.offsetLeft;
+        initialTop = cropBox.offsetTop;
+        e.stopPropagation();
+        e.preventDefault();
+    }
+
+    function startResize(e) {
+        if (!isCropEnabled) return;
+        isResizing = true;
+        startX = e.clientX || e.touches[0].clientX;
+        startY = e.clientY || e.touches[0].clientY;
+        initialWidth = cropBox.clientWidth;
+        initialHeight = cropBox.clientHeight;
+        initialLeft = cropBox.offsetLeft;
+        initialTop = cropBox.offsetTop;
+        e.stopPropagation();
+        e.preventDefault();
+    }
+
+    function onMove(e) {
+        if (!isCropEnabled || (!isDragging && !isResizing)) return;
+        let clientX = e.clientX || (e.touches ? e.touches[0].clientX : 0);
+        let clientY = e.clientY || (e.touches ? e.touches[0].clientY : 0);
+
+        if (isDragging) {
+            let dx = clientX - startX;
+            let dy = clientY - startY;
+            let newLeft = Math.max(0, Math.min(initialLeft + dx, canvas.clientWidth - cropBox.clientWidth));
+            let newTop = Math.max(0, Math.min(initialTop + dy, canvas.clientHeight - cropBox.clientHeight));
+
+            cropBox.style.left = newLeft + 'px';
+            cropBox.style.top = newTop + 'px';
+            e.preventDefault();
+        } 
+        else if (isResizing) {
+            let dx = clientX - startX;
+            let dy = clientY - startY;
+            let newW = initialWidth + dx;
+            let newH = initialHeight + dy;
+
+            let ratio = aspectRatioSelect.value;
+            if (ratio !== 'free') {
+                let targetRatio = parseFloat(ratio);
+                newH = newW / targetRatio;
+            }
+
+            if (initialLeft + newW > canvas.clientWidth) newW = canvas.clientWidth - initialLeft;
+            if (initialTop + newH > canvas.clientHeight) newH = canvas.clientHeight - initialTop;
+
+            if (newW > 30 && newH > 30) {
+                cropBox.style.width = newW + 'px';
+                cropBox.style.height = newH + 'px';
+                updateInputs();
+            }
+            e.preventDefault();
+        }
+    }
+
+    function onEnd() {
+        isDragging = false;
+        isResizing = false;
+    }
+
+    aspectRatioSelect.addEventListener('change', () => {
+        let ratio = aspectRatioSelect.value;
+        let currentW = cropBox.clientWidth;
+        if (ratio !== 'free') {
+            let targetRatio = parseFloat(ratio);
+            let currentH = currentW / targetRatio;
+            if (initialTop + currentH > canvas.clientHeight) {
+                currentH = canvas.clientHeight - initialTop;
+                currentW = currentH * targetRatio;
+            }
+            cropBox.style.width = currentW + 'px';
+            cropBox.style.height = currentH + 'px';
+            updateInputs();
+        }
+    });
+
+    processBtn.addEventListener('click', () => {
+        let cropX = isCropEnabled ? (cropBox.offsetLeft / scale) : 0;
+        let cropY = isCropEnabled ? (cropBox.offsetTop / scale) : 0;
+        let cropW = isCropEnabled ? (cropBox.clientWidth / scale) : img.width;
+        let cropH = isCropEnabled ? (cropBox.clientHeight / scale) : img.height;
+
+        let outputCanvas = document.createElement('canvas');
+        outputCanvas.width = cropW;
+        outputCanvas.height = cropH;
+        let outputCtx = outputCanvas.getContext('2d');
+        
+        outputCtx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+        
+        canvas.width = cropW;
+        canvas.height = cropH;
+        ctx.drawImage(outputCanvas, 0, 0);
+
+        setTimeout(() => { scale = canvas.clientWidth / cropW; }, 50);
+
+        let format = imageFormatSelect.value;
+        let quality = parseFloat(qualityInput.value);
+        finalDataUrl = outputCanvas.toDataURL(format, quality);
+
+        let ext = format.split('/')[1];
+        if(ext === 'jpeg') ext = 'jpg';
+        finalFileName = `edited_image_${cropW}x${cropH}.${ext}`;
+
+        downloadBtn.classList.add('active');
+    });
+
+    downloadBtn.addEventListener('click', () => {
+        if (!downloadBtn.classList.contains('active')) return;
+        
+        let base64Length = finalDataUrl.length - (finalDataUrl.indexOf(',') + 1);
+        let sizeInBytes = (base64Length * 3) / 4;
+        let sizeFormatted = sizeInBytes > 1024 * 1024 
+            ? (sizeInBytes / (1024 * 1024)).toFixed(2) + ' MB' 
+            : (sizeInBytes / 1024).toFixed(2) + ' KB';
+
+        let formatName = imageFormatSelect.options[imageFormatSelect.selectedIndex].text.split(' ')[0];
+
+        modalInfoText.innerHTML = `
+            <b>اسم الملف:</b> ${finalFileName}<br>
+            <b>الأبعاد:</b> ${canvas.width} × ${canvas.height} بكسل<br>
+            <b>الصيغة:</b> ${formatName}<br>
+            <b>الحجم التقديري:</b> ${sizeFormatted}
+        `;
+        infoModal.style.display = 'flex';
+    });
+
+    confirmDownload.addEventListener('click', () => {
+        let a = document.createElement('a');
+        a.href = finalDataUrl;
+        a.download = finalFileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        infoModal.style.display = 'none';
+    });
+
+    cancelModal.addEventListener('click', () => {
+        infoModal.style.display = 'none';
+    });
+</script>
+
+</body>
+</html>
